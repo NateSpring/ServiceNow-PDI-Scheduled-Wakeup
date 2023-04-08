@@ -1,71 +1,113 @@
+# ServiceNow-PDI-Scheduled-Wakeup
+# This script logs in to one or more instances of a service management tool
+# using Selenium and takes a screenshot of the home page. The instances to be
+# woken up are specified in the 'instances' list below.
+#
+# Configuration:
+#   - Set the URL, username, and password for each instance in the 'instances' list.
+#   - Customize the options for Chrome and the virtual display as needed.
+#   - Update the path to chromedriver_autoinstaller and chromedriver if necessary.
+#
+# Requirements:
+#   - Python 3.x
+#   - selenium
+#   - pyvirtualdisplay
+#   - chromedriver_autoinstaller
+#
+# Usage:
+#   - Run the script with Python to wake up all instances in the 'instances' list.
+#
+# Example(s)
+#   python wakeup.py
+#   python3 wakeup.py
+#
+# Note: Make sure that the 'logs' directory exists and the user running the script has
+#       write permission to it.
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
 from pyvirtualdisplay import Display
 import os
 import time
-import schedule
+from datetime import datetime
+import chromedriver_autoinstaller
 
+# Set up instances to be woken up
+instances = [
+    {
+        "instance": "https://{INSTANCE}.service-now.com",
+        "username": "{USERNAME}",
+        "pass": "{PASSWORD}",
+    },
+]
+
+# Start virtual display and headless Chrome
 display = Display(visible=0, size=(800, 600))
 display.start()
 chrome_options = Options()
 chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
-driver = webdriver.Chrome("path to chromedriver")
+chrome_options.add_argument("--disable-webgl")
 
-instances = [
-    {
-        "instance": "https://devXXXX.service-now.com",
-        "username": "admin",
-        "pass": "yourpassword",
-    },
-]
+# Set user agent string
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36"
+chrome_options.add_argument(f"user-agent={user_agent}")
 
-wakeuptime = '07:00'
+# Start Chrome driver service
+# Example Chromedriver Path: /Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/chromedriver_autoinstaller/112/chromedriver
+chrome_service = Service(executable_path="{CHROMEDRIVER PATH}")
+# Create a Chrome driver instance with the service and options
+driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
 
+# Disable the "webdriver" property to prevent detection
+driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-# Signin to instance via headless chromium to wake up.
-def wake(instance, username, passwerd):
-    driver.get(instance)
-    # Wait for Login iFrame to ready up.
-    WebDriverWait(driver, 10).until(
-        EC.frame_to_be_available_and_switch_to_it((By.CSS_SELECTOR, "#gsft_main"))
-    )
-
-    # Collect HTML Elements we'll be using
+# The wake function logs in to an instance and takes a screenshot of the home page
+def wake(instance, username, password):
+    # Extract the instance name from the login URL
+    instance_name = instance.split("://")[1].split(".")[0]
+    
+    # Load the login page for the instance
+    driver.get(f"{instance}/login.do")
+    
+    # Find the username, password, and login button elements
     name_input = driver.find_element(By.ID, "user_name")
     pass_input = driver.find_element(By.ID, "user_password")
     loginButton = driver.find_element(By.ID, "sysverb_login")
 
-    # Sign In
+    # Enter the username
     name_input.send_keys(username)
-    print("{} - Filled in Username".format(instance))
-    time.sleep(3)
-    pass_input.send_keys(passwerd)
-    print("{} - Filled in Pass".format(instance))
-    time.sleep(3)
+    time.sleep(1)
+    
+    # Enter the password
+    pass_input.send_keys(password)
+    time.sleep(1)
+    
+    # Click the login button
     loginButton.click()
-    print("{} - Clicked Login Button".format(instance))
-    time.sleep(5)
+    time.sleep(10)
 
-    # Save Img of signin proof.
-    driver.get_screenshot_as_file("capture.png")
-    print("{} - Done, cleaning up.".format(instance))
-    # Cleanup active browser.
+    # Take a screenshot of the page
+    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    screenshot_file = f"logs/{instance_name}-capture_{timestamp}.png"
+    driver.get_screenshot_as_file(screenshot_file)
+
+    # Log out of the instance
+    driver.get(f"{instance}/logout.do")
+
+    # Quit the driver and stop the virtual display
     driver.quit()
     display.stop()
 
-
-# Loop through instances to wake.
+# The sunsup function wakes up all instances listed in the 'instances' list
+# by logging into each instance and taking a screenshot of the home page
 def sunsup():
-    for inst in instances:
-        wake(inst["instance"], inst["username"], inst["pass"])
+    # Loop over each instance and wake it up
+    for instance in instances:
+        # Call the wake function with the instance details
+        wake(instance["instance"], instance["username"], instance["pass"])
 
-
-# Set Schedule for continuous waking.
-schedule.every().day.at(wakeuptime).do(sunsup)
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# Call the sunsup function to start waking up instances
+sunsup()
